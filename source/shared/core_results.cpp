@@ -89,7 +89,8 @@ void cache_row_dtor(zval* data);
 template <typename Number>
 SQLRETURN get_string_from_stream( Number number_data, std::basic_string<char> &str_num, sqlsrv_error_auto_ptr& last_error )
 {
-    std::locale loc( std::locale(""), new std::num_put<char> );
+    //std::locale loc( std::locale(""), new std::num_put<char> );
+	std::locale loc;
     std::basic_stringstream<char> os;
     os.imbue( loc );
     auto itert = std::ostreambuf_iterator<char>( os.rdbuf() );
