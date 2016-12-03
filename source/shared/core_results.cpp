@@ -177,25 +177,61 @@ template <typename Number, typename Char>
 SQLRETURN string_to_number( Char* string_data, SQLLEN str_len, _Out_ void* buffer, SQLLEN buffer_length, 
                             _Out_ SQLLEN* out_buffer_length, sqlsrv_error_auto_ptr& last_error )
 {
-/*
-    Number* number_data = reinterpret_cast<Number*>( buffer ); 
-    std::locale loc;    // default locale should match system
-    std::basic_istringstream<Char> is;
-    is.str( string_data );
-    is.imbue( loc );
-    std::ios_base::iostate st = std::ios_base::goodbit;
+	Number* number_data = reinterpret_cast<Number*>( buffer );
 
-    std::use_facet< std::num_get< Char > >( loc ).get( std::basic_istream<Char>::_Iter( is.rdbuf( ) ), 
-                                                       //std::basic_istream<Char>::_Iter(0), is, st, *number_data );
+	std::string str;	
+    if ( std::is_same<Char, SQLWCHAR>::value )
+	{
+		// convert to regular character string first
+		char c_str[3] = "";
+		mbstate_t mbs;
+		
+		SQLLEN i = 0;
+		while (string_data[i])
+		{			
+			memset( &mbs, 0, sizeof( mbs ) );		//set shift state to the initial state
+			memset( c_str, 0, sizeof( c_str ) );
+			int len = c16rtomb( c_str, string_data[i++], &mbs );	// treat string_data as a char16_t string
+			str.append( std::string( c_str, len ) );
+		}		
+	}
+	else
+	{		
+		str.append( std::string( (char *)string_data ) );
+	}
+	
+	std::istringstream is( str );
+	std::locale loc;    // default locale should match system
+	is.imbue(loc);
+	
+	auto& facet = std::use_facet<std::num_get<char>>( is.getloc() );
+	std::istreambuf_iterator<char> beg( is ), end;	
+    std::ios_base::iostate err = std::ios_base::goodbit;
 
-    if( st & std::ios_base::failbit ) {
+	if ( std::is_integral<Number>::value ) 
+	{
+		long number;
+		facet.get(beg, end, is, err, number);
+
+		*number_data = number;
+	}
+	else
+	{
+		double number;
+		facet.get(beg, end, is, err, number);
+		
+		*number_data = number;
+	}
+
+    *out_buffer_length = sizeof( Number );
+
+	if ( is.fail() )	
+	{
         last_error = new ( sqlsrv_malloc( sizeof( sqlsrv_error ))) sqlsrv_error( 
             (SQLCHAR*) "22003", (SQLCHAR*) "Numeric value out of range", 103 );
         return SQL_ERROR;        
     }
-
-    *out_buffer_length = sizeof( Number );
-*/
+	
     return SQL_SUCCESS;
 }
 
