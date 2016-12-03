@@ -85,13 +85,45 @@ SQLPOINTER read_lob_field( sqlsrv_stmt* stmt, SQLUSMALLINT field_index, sqlsrv_b
 // dtor for each row in the cache
 void cache_row_dtor(zval* data);
 
+size_t get_float_precision(SQLLEN buffer_length, size_t unitsize)
+{
+    SQLSRV_ASSERT( unitsize != 0, "Invalid unit size!" );
+
+	// get to display size by removing the null terminator from buffer length
+	size_t display_size = ( buffer_length - unitsize) / unitsize;
+
+	// use the display size to determine the sql type. And if it is a double, set the precision accordingly
+	// the display sizes are set by the ODBC driver based on the precision of the sql type
+	// otherwise we can just use the default precision as long as it will not be truncated
+	size_t real_display_size = 14;
+	size_t float_display_size = 24;
+	size_t real_precision = 7;
+	size_t float_precision = 15;
+	
+	// this is the case of sql type float(24) or real
+	if ( display_size == real_display_size ) {
+		return real_precision;
+	}
+	// this is the case of sql type float(53)
+	else if ( display_size == float_display_size ) {
+		return float_precision;
+	}
+	
+	return 0;
+}
+
 // copy the number into a char string using the num_put facet
 template <typename Number>
-SQLRETURN get_string_from_stream( Number number_data, std::basic_string<char> &str_num, sqlsrv_error_auto_ptr& last_error )
+SQLRETURN get_string_from_stream( Number number_data, std::basic_string<char> &str_num, size_t precision, sqlsrv_error_auto_ptr& last_error )
 {
-    //std::locale loc( std::locale(""), new std::num_put<char> );
+    //std::locale loc( std::locale(""), new std::num_put<char> );	// By default, SQL Server doesn't take user's locale into consideration
 	std::locale loc;
-    std::basic_stringstream<char> os;
+	std::basic_ostringstream<char> os;	
+	
+	if (precision > 0) {
+		os.precision( precision );
+	}
+
     os.imbue( loc );
     auto itert = std::ostreambuf_iterator<char>( os.rdbuf() );
     std::use_facet< std::num_put<char>>( loc ).put( itert, os, ' ', number_data );
@@ -119,7 +151,7 @@ SQLRETURN copy_buffer( _Out_ void* buffer, SQLLEN buffer_length, _Out_ SQLLEN* o
         return SQL_ERROR;
     }
 
-    memcpy( buffer, str.c_str(), *out_buffer_length );
+	memcpy_s( buffer, *out_buffer_length, str.c_str(), *out_buffer_length );
     
     return SQL_SUCCESS;
 }
@@ -137,14 +169,16 @@ SQLRETURN number_to_string( Number *number_data, _Out_ void* buffer, SQLLEN buff
     std::basic_string<char> str_num;
     SQLRETURN r;
     
+	size_t precision = 0; 
     if ( std::is_integral<Number>::value ) 
     {
         long num_data = *number_data;
-        r = get_string_from_stream<long>( num_data, str_num, last_error );
+        r = get_string_from_stream<long>( num_data, str_num, precision, last_error );
     }
     else
     {
-        r = get_string_from_stream<double>( *number_data, str_num, last_error );
+		precision = get_float_precision( buffer_length, sizeof( Char ) );
+        r = get_string_from_stream<double>( *number_data, str_num, precision, last_error );
     }
     
     if ( r == SQL_ERROR ) return SQL_ERROR;
